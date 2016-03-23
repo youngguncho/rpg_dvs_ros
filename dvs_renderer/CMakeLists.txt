@@ -82,6 +82,6 @@ install(TARGETS dvs_renderer_nodelet
 )
 
 # Install other support files for installation
-install(FILES dvs_renderer_nodelet.xml nodelet_stereo.launch nodelet_mono.launch
+install(FILES dvs_renderer_nodelet.xml launch/nodelet_stereo.launch launch/nodelet_mono.launch
   DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
 )

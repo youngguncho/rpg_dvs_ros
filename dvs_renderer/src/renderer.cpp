@@ -28,6 +28,10 @@ Renderer::Renderer(ros::NodeHandle & nh, ros::NodeHandle nh_private) : nh_(nh),
   nh_private.param<std::string>("display_method", display_method_str, "");
   display_method_ = (display_method_str == std::string("grayscale")) ? GRAYSCALE : RED_BLUE;
 
+
+  integration_length_ = nh_private.param("integration_length", 50);
+  use_milliseconds_   = nh_private.param("use_milliseconds", true);
+
   // setup subscribers and publishers
   event_sub_ = nh_.subscribe("events", 1, &Renderer::eventsCallback, this);
   camera_info_sub_ = nh_.subscribe("camera_info", 1, &Renderer::cameraInfoCallback, this);
@@ -88,16 +92,6 @@ void Renderer::imageCallback(const sensor_msgs::Image::ConstPtr& msg)
 
   // convert from grayscale to color image
   cv::cvtColor(cv_ptr->image, last_image_, CV_GRAY2BGR);
-
-  if (!used_last_image_)
-  {
-    cv_bridge::CvImage cv_image;
-    last_image_.copyTo(cv_image.image);
-    cv_image.encoding = "bgr8";
-    std::cout << "publish image from callback" << std::endl;
-    image_pub_.publish(cv_image.toImageMsg());
-  }
-  used_last_image_ = false;
 }
 
 void Renderer::eventsCallback(const dvs_msgs::EventArray::ConstPtr& msg)
@@ -106,11 +100,28 @@ void Renderer::eventsCallback(const dvs_msgs::EventArray::ConstPtr& msg)
   {
     ++event_stats_[0].events_counter_[msg->events[i].polarity];
     ++event_stats_[1].events_counter_[msg->events[i].polarity];
+
+    events_.push_back(msg->events[i]);
+
+    if (use_milliseconds_)
+    {
+      if ((events_.back().ts - events_[0].ts).toSec() >= integration_length_/1000.)
+      {
+        publishImageAndClearEvents();
+      }
+    }
+    else if (events_.size() >= integration_length_)
+    {
+      publishImageAndClearEvents();
+    }
   }
 
   publishStats();
   image_tracking_.eventsCallback(msg);
+}
 
+void Renderer::publishImageAndClearEvents()
+{
   // only create image if at least one subscriber
   if (image_pub_.getNumSubscribers() > 0)
   {
@@ -120,45 +131,37 @@ void Renderer::eventsCallback(const dvs_msgs::EventArray::ConstPtr& msg)
     {
       cv_image.encoding = "bgr8";
 
-      if (last_image_.rows == msg->height && last_image_.cols == msg->width)
-      {
-        last_image_.copyTo(cv_image.image);
-        used_last_image_ = true;
-      }
-      else
-      {
-        cv_image.image = cv::Mat(msg->height, msg->width, CV_8UC3);
-        cv_image.image = cv::Scalar(128, 128, 128);
-      }
+      last_image_.copyTo(cv_image.image);
+      cv_image.header.stamp = events_.back().ts;
 
-      for (int i = 0; i < msg->events.size(); ++i)
+      for (int i = 0; i < events_.size(); ++i)
       {
-        const int x = msg->events[i].x;
-        const int y = msg->events[i].y;
+        const int x = events_[i].x;
+        const int y = events_[i].y;
 
         cv_image.image.at<cv::Vec3b>(cv::Point(x, y)) = (
-            msg->events[i].polarity == true ? cv::Vec3b(255, 0, 0) : cv::Vec3b(0, 0, 255));
+            events_[i].polarity == true ? cv::Vec3b(255, 0, 0) : cv::Vec3b(0, 0, 255));
       }
     }
     else
     {
       cv_image.encoding = "mono8";
-      cv_image.image = cv::Mat(msg->height, msg->width, CV_8U);
+      cv_image.image = cv::Mat(last_image_.size(), CV_8U);
       cv_image.image = cv::Scalar(128);
 
-      cv::Mat on_events = cv::Mat(msg->height, msg->width, CV_8U);
+      cv::Mat on_events = cv::Mat(last_image_.size(), CV_8U);
       on_events = cv::Scalar(0);
 
-      cv::Mat off_events = cv::Mat(msg->height, msg->width, CV_8U);
+      cv::Mat off_events = cv::Mat(last_image_.size(), CV_8U);
       off_events = cv::Scalar(0);
 
       // count events per pixels with polarity
-      for (int i = 0; i < msg->events.size(); ++i)
+      for (int i = 0; i < events_.size(); ++i)
       {
-        const int x = msg->events[i].x;
-        const int y = msg->events[i].y;
+        const int x = events_[i].x;
+        const int y = events_[i].y;
 
-        if (msg->events[i].polarity == 1)
+        if (events_[i].polarity == 1)
           on_events.at<uint8_t>(cv::Point(x, y))++;
         else
           off_events.at<uint8_t>(cv::Point(x, y))++;
@@ -182,6 +185,8 @@ void Renderer::eventsCallback(const dvs_msgs::EventArray::ConstPtr& msg)
       undistorted_image_pub_.publish(cv_image2.toImageMsg());
     }
   }
+
+  events_.clear();
 }
 
 void Renderer::publishStats()

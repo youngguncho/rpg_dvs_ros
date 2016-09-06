@@ -32,6 +32,8 @@
 #include <dvs_msgs/Event.h>
 #include <dvs_msgs/EventArray.h>
 
+#include <deque>
+
 namespace dvs_renderer
 {
 
@@ -47,6 +49,7 @@ private:
   void eventsCallback(const dvs_msgs::EventArray::ConstPtr& msg);
   void imageCallback(const sensor_msgs::Image::ConstPtr& msg);
 
+  void publishImageAndClearEvents();
   void publishStats();
 
   bool got_camera_info_;
@@ -60,7 +63,11 @@ private:
 
   image_transport::Subscriber image_sub_;
   cv::Mat last_image_;
-  bool used_last_image_;
+
+  size_t integration_length_;
+  bool use_milliseconds_;
+
+  std::deque<dvs_msgs::Event> events_;
 
   struct EventStats {
     ros::Publisher events_mean_[2]; /**< event stats output */

@@ -122,6 +122,9 @@ void Renderer::eventsCallback(const dvs_msgs::EventArray::ConstPtr& msg)
 
 void Renderer::publishImageAndClearEvents()
 {
+  if(!last_image_.data)
+    return;
+
   // only create image if at least one subscriber
   if (image_pub_.getNumSubscribers() > 0)
   {

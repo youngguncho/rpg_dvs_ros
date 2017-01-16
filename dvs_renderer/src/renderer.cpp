@@ -22,6 +22,7 @@ Renderer::Renderer(ros::NodeHandle & nh, ros::NodeHandle nh_private) : nh_(nh),
     image_tracking_(nh)
 {
   got_camera_info_ = false;
+  sensor_size_ = cv::Size(0,0);
 
   // get parameters of display method
   std::string display_method_str;
@@ -64,6 +65,11 @@ void Renderer::cameraInfoCallback(const sensor_msgs::CameraInfo::ConstPtr& msg)
 {
   got_camera_info_ = true;
 
+  if(msg->width > 0 && msg->height > 0)
+  {
+    sensor_size_ = cv::Size(msg->width, msg->height);
+  }
+
   camera_matrix_ = cv::Mat(3, 3, CV_64F);
   for (int i = 0; i < 3; i++)
     for (int j = 0; j < 3; j++)
@@ -96,6 +102,11 @@ void Renderer::imageCallback(const sensor_msgs::Image::ConstPtr& msg)
 
 void Renderer::eventsCallback(const dvs_msgs::EventArray::ConstPtr& msg)
 {
+  if(msg->width > 0 && msg->height > 0)
+  {
+    sensor_size_ = cv::Size(msg->width, msg->height);
+  }
+
   for (int i = 0; i < msg->events.size(); ++i)
   {
     ++event_stats_[0].events_counter_[msg->events[i].polarity];
@@ -122,8 +133,23 @@ void Renderer::eventsCallback(const dvs_msgs::EventArray::ConstPtr& msg)
 
 void Renderer::publishImageAndClearEvents()
 {
-  if(!last_image_.data)
+  // I can create an image only if the sensor size is already known
+  if(sensor_size_.width * sensor_size_.height <= 0)
+  {
     return;
+  }
+
+  if(!last_image_.data)
+  {
+    if(display_method_ == RED_BLUE)
+    {
+      last_image_ = cv::Mat::zeros(sensor_size_, CV_8UC3);
+    }
+    else
+    {
+      last_image_ = cv::Mat::zeros(sensor_size_, CV_8U);
+    }
+  }
 
   // only create image if at least one subscriber
   if (image_pub_.getNumSubscribers() > 0)
